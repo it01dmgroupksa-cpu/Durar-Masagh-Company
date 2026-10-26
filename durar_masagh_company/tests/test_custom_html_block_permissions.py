@@ -10,10 +10,15 @@ READ_ROLES = [
 	"Technical Coordinator", "DMS Sales Person Access", "AR Accountant",
 	"Manufacturing Dashboard Viewer", "Treasury Manager", "Driver Dashboard User",
 ]
+SELECT_ONLY_ROLES = ["Block Picker"]
+
 USERS = {
 	"driver@x": ["Employee", "Driver", "Driver Dashboard User", "All", "Guest"],
+	"driver_select@x": ["Employee", "Driver Dashboard User", "Block Picker"],
+	"driver_read@x": ["Employee", "Driver Dashboard User", "Sales Person"],
 	"sales@x": ["Employee", "Sales Person"],
 	"employee@x": ["Employee"],
+	"selectonly@x": ["Employee", "Block Picker"],
 	"sysman@x": ["System Manager", "Driver Dashboard User"],
 	"multi@x": ["CEO", "Driver Dashboard User"],
 	"Administrator": ["Administrator"],
@@ -21,7 +26,9 @@ USERS = {
 
 
 def meta(_dt):
-	return SimpleNamespace(permissions=[SimpleNamespace(role=r, read=1, select=0, permlevel=0) for r in READ_ROLES])
+	perms = [SimpleNamespace(role=r, read=1, select=0, permlevel=0) for r in READ_ROLES]
+	perms += [SimpleNamespace(role=r, read=0, select=1, permlevel=0) for r in SELECT_ONLY_ROLES]
+	return SimpleNamespace(permissions=perms)
 
 
 def doc(name):
@@ -48,6 +55,35 @@ class TestCustomHTMLBlockPermissions(unittest.TestCase):
 		self.assertIn("ESS UI - Driver", c)
 		self.assertNotIn("CEO", c)
 
+	# Driver Dashboard User + Select-only role must stay restricted (Select is not Read).
+	def test_driver_with_select_only_role_stays_restricted(self, *_):
+		self.assertIsNone(m.has_permission(doc("ESS UI - Driver"), "read", "driver_select@x"))
+		self.assertIs(m.has_permission(doc("CEO Command Center"), "read", "driver_select@x"), False)
+		self.assertIs(m.has_permission(doc("CEO Command Center"), "select", "driver_select@x"), False)
+		self.assertIn("ESS UI - Driver", m.get_permission_query_conditions("driver_select@x"))
+
+	# Driver Dashboard User + an existing Read role keeps that role's existing access (audited overlap).
+	def test_driver_with_existing_read_role_unchanged(self, *_):
+		self.assertIsNone(m.has_permission(doc("CEO Command Center"), "read", "driver_read@x"))
+		self.assertEqual(m.get_permission_query_conditions("driver_read@x"), "")
+
+	# Driver Dashboard User with no other block permission at all.
+	def test_driver_without_other_block_permissions(self, *_):
+		self.assertEqual(m.allowed_blocks("driver@x"), ("ESS UI - Driver",))
+
+	# The restriction does not depend on User Permissions existing (deny-by-default).
+	def test_driver_without_user_permission_still_restricted(self, *_):
+		with patch.object(m.frappe, "get_all", create=True, return_value=[]) as get_all, \
+			patch.object(m.frappe, "get_list", create=True, return_value=[]) as get_list:
+			self.assertIs(m.has_permission(doc("CEO Command Center"), "read", "driver@x"), False)
+			self.assertIn("ESS UI - Driver", m.get_permission_query_conditions("driver@x"))
+			get_all.assert_not_called()
+			get_list.assert_not_called()
+
+	def test_select_only_user_without_dashboard_role_unaffected(self, *_):
+		self.assertIsNone(m.has_permission(doc("CEO Command Center"), "select", "selectonly@x"))
+		self.assertEqual(m.get_permission_query_conditions("selectonly@x"), "")
+
 	def test_unaffected_users(self, *_):
 		for user in ("sales@x", "employee@x", "sysman@x", "multi@x", "Administrator"):
 			self.assertIsNone(m.has_permission(doc("CEO Command Center"), "read", user))
@@ -56,4 +92,5 @@ class TestCustomHTMLBlockPermissions(unittest.TestCase):
 	def test_hook_never_grants(self, *_):
 		for user in USERS:
 			for name in ("ESS UI - Driver", "CEO Command Center"):
-				self.assertIn(m.has_permission(doc(name), "read", user), (None, False))
+				for ptype in ("read", "select", "write"):
+					self.assertIn(m.has_permission(doc(name), ptype, user), (None, False))
