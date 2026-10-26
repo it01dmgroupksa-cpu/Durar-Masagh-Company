@@ -23,10 +23,13 @@ ALWAYS_UNRESTRICTED = {"Administrator", "System Manager"}
 
 
 def _roles_granting_read():
-	"""Roles that grant read on Custom HTML Block via role permissions, excluding the dashboard roles."""
+	"""Roles that grant READ on Custom HTML Block via role permissions, excluding the dashboard roles.
+
+	Select-only roles are deliberately NOT counted: Select is not Read, so a user holding a
+	Select-only role plus a dashboard role must stay restricted to the dashboard blocks."""
 	roles = set()
 	for p in frappe.get_meta(DOCTYPE).permissions:
-		if (p.permlevel or 0) == 0 and (p.read or p.select):
+		if (p.permlevel or 0) == 0 and p.read:
 			roles.add(p.role)
 	return roles - set(DASHBOARD_ROLE_BLOCKS)
 
