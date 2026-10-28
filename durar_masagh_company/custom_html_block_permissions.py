@@ -17,6 +17,7 @@ DOCTYPE = "Custom HTML Block"
 # dashboard role -> blocks that role alone may read
 DASHBOARD_ROLE_BLOCKS = {
 	"Driver Dashboard User": ("ESS UI - Driver",),
+	"Employee Dashboard User": ("Employee Dashboard Prototype",),
 }
 
 ALWAYS_UNRESTRICTED = {"Administrator", "System Manager"}
