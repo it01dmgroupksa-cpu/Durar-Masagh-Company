@@ -9,6 +9,7 @@ READ_ROLES = [
 	"CEO", "IT Coordinator", "Metabase", "Internal Controller", "Purchase User", "Sales Person",
 	"Technical Coordinator", "DMS Sales Person Access", "AR Accountant",
 	"Manufacturing Dashboard Viewer", "Treasury Manager", "Driver Dashboard User",
+	"Employee Dashboard User",
 ]
 SELECT_ONLY_ROLES = ["Block Picker"]
 
@@ -19,6 +20,8 @@ USERS = {
 	"sales@x": ["Employee", "Sales Person"],
 	"employee@x": ["Employee"],
 	"selectonly@x": ["Employee", "Block Picker"],
+	"empdash@x": ["Employee", "Employee Dashboard User"],
+	"both@x": ["Employee", "Driver Dashboard User", "Employee Dashboard User"],
 	"sysman@x": ["System Manager", "Driver Dashboard User"],
 	"multi@x": ["CEO", "Driver Dashboard User"],
 	"Administrator": ["Administrator"],
@@ -83,6 +86,29 @@ class TestCustomHTMLBlockPermissions(unittest.TestCase):
 	def test_select_only_user_without_dashboard_role_unaffected(self, *_):
 		self.assertIsNone(m.has_permission(doc("CEO Command Center"), "select", "selectonly@x"))
 		self.assertEqual(m.get_permission_query_conditions("selectonly@x"), "")
+
+	# Employee Dashboard User may read only the Employee Dashboard block.
+	def test_employee_dashboard_user_limited(self, *_):
+		self.assertIsNone(m.has_permission(doc("Employee Dashboard Prototype"), "read", "empdash@x"))
+		for name in ("CEO Command Center", "HR Dashboard Block", "Metabase Finance", "ESS UI - Driver"):
+			self.assertIs(m.has_permission(doc(name), "read", "empdash@x"), False)
+		self.assertIs(m.has_permission(doc("Employee Dashboard Prototype"), "write", "empdash@x"), False)
+		c = m.get_permission_query_conditions("empdash@x")
+		self.assertIn("Employee Dashboard Prototype", c)
+		self.assertNotIn("ESS UI - Driver", c)
+
+	# Holding both dashboard roles gives exactly the union of their two blocks.
+	def test_both_dashboard_roles(self, *_):
+		self.assertEqual(m.allowed_blocks("both@x"), ("ESS UI - Driver", "Employee Dashboard Prototype"))
+		self.assertIsNone(m.has_permission(doc("ESS UI - Driver"), "read", "both@x"))
+		self.assertIsNone(m.has_permission(doc("Employee Dashboard Prototype"), "read", "both@x"))
+		self.assertIs(m.has_permission(doc("CEO Command Center"), "read", "both@x"), False)
+
+	# No User Permission records are needed for the restriction.
+	def test_employee_dashboard_user_without_user_permission(self, *_):
+		with patch.object(m.frappe, "get_all", create=True, return_value=[]) as get_all:
+			self.assertIs(m.has_permission(doc("CEO Command Center"), "read", "empdash@x"), False)
+			get_all.assert_not_called()
 
 	def test_unaffected_users(self, *_):
 		for user in ("sales@x", "employee@x", "sysman@x", "multi@x", "Administrator"):
